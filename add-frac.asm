@@ -1,6 +1,6 @@
 section .data
-    fmt_plus_infinity:      db 0x2b, 0xe2, 0x88, 0x9e, 0x00 ; +inf
-    fmt_minus_infinity:     db 0x2d, 0xe2, 0x88, 0x9e, 0x00 ; -inf
+    fmt_plus_infinity:      db 0x2b, 0xe2, 0x88, 0x9e, 0x00  ; for +∞
+    fmt_minus_infinity:     db 0x2d, 0xe2, 0x88, 0x9e, 0x00  ; for −∞
     fmt_nan:                db 'NaN ("not a number")', 10, 0
     fmt_usage:              db "Usage: program frac1 frac2,", 10
                             db "where frac can be either nat or nat/nat", 10, 0
