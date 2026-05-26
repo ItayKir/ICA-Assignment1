@@ -35,6 +35,7 @@ usage_error:
     mov rax, 1                  
     ret
 
+.args_ok:
     ; 1. Extract first argument (argv[1])
     mov rdi, qword [rsi + 8]       ; Load pointer to frac1 string
     call parse_fraction            ; Returns: rax = num1, rcx = den1
@@ -46,6 +47,25 @@ usage_error:
     call parse_fraction            ; Returns: rax = num2, rcx = den2
     mov r14, rax                   ; Store num2 in callee-saved register r14
     mov r15, rcx                   ; Store den2 in callee-saved register r15
+
+; 1. Calculate the left side of the numerator addition: (n1 * d2)
+    mov rax, r12                   ; Copy n1 into rax
+    imul rax, r15                  ; Multiply rax by d2 (rax = n1 * d2)
+    
+    ; 2. Calculate the right side of the numerator addition: (n2 * d1)
+    mov r8, r14                    ; Copy n2 into r8
+    imul r8, r13                   ; Multiply r8 by d1 (r8 = n2 * d1)
+    
+    ; 3. Combine them to get the new unreduced numerator
+    add rax, r8                    ; Add the two results (rax = n1*d2 + n2*d1)
+    
+    ; 4. Calculate the new denominator: (d1 * d2)
+    mov rcx, r13                   ; Copy d1 into rcx
+    imul rcx, r15                  ; Multiply rcx by d2 (rcx = d1 * d2)
+    
+    ; 5. Store the results safely back into our callee-saved registers
+    mov r12, rax                   ; Overwrite r12 with the new numerator
+    mov r13, rcx                   ; Overwrite r13 with the new denominator    
 
 parse_fraction:
     call parse_int                 ; Parse the numerator
