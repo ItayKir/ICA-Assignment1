@@ -17,12 +17,23 @@ section .text
     extern stderr
 
 main:
-    ; 1. Check command-line argument count (argc in rdi)
+    ; 1. Check command-line argument count (argc in rdi) - V
     ; 2. Parse argv strings (argv in rsi) into 64-bit integers 
     ; 3. Implement fraction addition: (n1*d2 + n2*d1) / (d1*d2)
     ; 4. Implement the GCD algorithm to reduce the sum [cite: 68]
     ; 5. Handle edge cases (Zero, NaN, +∞, -∞) [cite: 71, 72, 73, 74]
     ; 6. Print the result
+    cmp rdi, 3                  
+    je .args_ok
+
+.usage_error:
+    mov rdi, qword [stderr]     
+    lea rsi, [fmt_usage]        
+    xor rax, rax                
+    call fprintf                
+
+    mov rax, 1                  
+    ret
 
     xor rax, rax
     ret
