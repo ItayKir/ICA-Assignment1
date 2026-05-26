@@ -19,14 +19,8 @@ section .text
     extern stderr
 
 main:
-    ; 1. Check command-line argument count (argc in rdi) - V
-    ; 2. Parse argv strings (argv in rsi) into 64-bit integers 
-    ; 3. Implement fraction addition: (n1*d2 + n2*d1) / (d1*d2)
-    ; 4. Implement the GCD algorithm to reduce the sum [cite: 68]
-    ; 5. Handle edge cases (Zero, NaN, +∞, -∞) [cite: 71, 72, 73, 74]
-    ; 6. Print the result
     cmp rdi, 3                  
-    je .args_ok
+    je args_ok
 
 usage_error:
     mov rdi, qword [stderr]     
@@ -37,7 +31,7 @@ usage_error:
     mov rax, 1                  
     ret
 
-.args_ok:
+args_ok:
     ; 1. Extract first argument (argv[1])
     mov rdi, qword [rsi + 8]       ; Load pointer to frac1 string
     call parse_fraction            ; Returns: rax = num1, rcx = den1
@@ -237,3 +231,4 @@ parse_int:
     imul rax, r9                   ; Multiply the final number by our sign (1 or -1)
     ret
 
+section .note.GNU-stack noalloc noexec
