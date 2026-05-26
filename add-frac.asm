@@ -1,15 +1,11 @@
-section .data:
-    fmt_plus_infinity:      db 0x2b, 0xe2, 0x88, 0x9e, 0x00 ; for +∞
-    fmt_minus_infinity:     db 0x2d, 0xe2, 0x88, 0x9e, 0x00 ; for −∞
-
+section .data
+    fmt_plus_infinity:      db 0x2b, 0xe2, 0x88, 0x9e, 0x00 ; +inf
+    fmt_minus_infinity:     db 0x2d, 0xe2, 0x88, 0x9e, 0x00 ; -inf
     fmt_nan:                db 'NaN ("not a number")', 10, 0
-
     fmt_usage:              db "Usage: program frac1 frac2,", 10
                             db "where frac can be either nat or nat/nat", 10, 0
-
     fmt_fraction:           db "%ld/%ld", 10, 0
     fmt_integer:            db "%ld", 10, 0
-
     fmt_newline:            db 10, 0 
 
 section .text
@@ -19,10 +15,12 @@ section .text
     extern stderr
 
 main:
+    ; check if we got 3 args total
     cmp rdi, 3                  
     je args_ok
 
 usage_error:
+    ; print usage to stderr on bad input
     mov rdi, qword [stderr]     
     lea rsi, [fmt_usage]        
     xor rax, rax                
@@ -32,203 +30,189 @@ usage_error:
     ret
 
 args_ok:
-    ; 1. Extract first argument (argv[1])
-    mov rdi, qword [rsi + 8]       ; Load pointer to frac1 string
-    call parse_fraction            ; Returns: rax = num1, rcx = den1
-    mov r12, rax                   ; Store num1 in callee-saved register r12
-    mov r13, rcx                   ; Store den1 in callee-saved register r13
+    ; parse first arg
+    mov rdi, qword [rsi + 8]
+    call parse_fraction
+    mov r12, rax                   ; n1
+    mov r13, rcx                   ; d1
     
-    ; 2. Extract second argument (argv[2])
-    mov rdi, qword [rsi + 16]      ; Load pointer to frac2 string
-    call parse_fraction            ; Returns: rax = num2, rcx = den2
-    mov r14, rax                   ; Store num2 in callee-saved register r14
-    mov r15, rcx                   ; Store den2 in callee-saved register r15
+    ; parse second arg
+    mov rdi, qword [rsi + 16]
+    call parse_fraction
+    mov r14, rax                   ; n2
+    mov r15, rcx                   ; d2
 
-; 1. Calculate the left side of the numerator addition: (n1 * d2)
-    mov rax, r12                   ; Copy n1 into rax
-    imul rax, r15                  ; Multiply rax by d2 (rax = n1 * d2)
+    ; do math: (n1*d2 + n2*d1) / (d1*d2)
+    mov rax, r12
+    imul rax, r15                  ; n1 * d2
     
-    ; 2. Calculate the right side of the numerator addition: (n2 * d1)
-    mov r8, r14                    ; Copy n2 into r8
-    imul r8, r13                   ; Multiply r8 by d1 (r8 = n2 * d1)
+    mov r8, r14
+    imul r8, r13                   ; n2 * d1
     
-    ; 3. Combine them to get the new unreduced numerator
-    add rax, r8                    ; Add the two results (rax = n1*d2 + n2*d1)
+    add rax, r8                    ; sum numerators
     
-    ; 4. Calculate the new denominator: (d1 * d2)
-    mov rcx, r13                   ; Copy d1 into rcx
-    imul rcx, r15                  ; Multiply rcx by d2 (rcx = d1 * d2)
+    mov rcx, r13
+    imul rcx, r15                  ; new denom (d1 * d2)
     
-    ; 5. Store the results safely back into our callee-saved registers
-    mov r12, rax                   ; Overwrite r12 with the new numerator
-    mov r13, rcx                   ; Overwrite r13 with the new denominator    
+    ; save unreduced result
+    mov r12, rax
+    mov r13, rcx
 
-    mov rax, r12                   ; Copy numerator into rax (will be 'a')
+    ; start gcd algorithm
+    mov rax, r12
     cmp rax, 0
-    jge .num_positive              ; If numerator >= 0, skip negation
-    neg rax                        ; Make rax positive (a = abs(numerator))
+    jge .num_positive
+    neg rax                        ; make positive for gcd
 .num_positive:
 
-    mov r8, r13                    ; Copy denominator into r8 (will be 'b')
+    mov r8, r13
 
-    ; 2. The Euclidean Algorithm Loop: while (b != 0) { temp=b; b=a%b; a=temp; }
 .gcd_loop:
-    cmp r8, 0                      ; Check if b == 0
-    je .gcd_done                   ; If b is 0, 'a' (rax) contains the GCD
+    cmp r8, 0
+    je .gcd_done
 
-    xor rdx, rdx                   ; Clear rdx to prepare for unsigned division
-    div r8                         ; Unsigned divide: rdx:rax / r8
-                                   ; rax = quotient, rdx = remainder (a % b)
+    xor rdx, rdx
+    div r8
     
-    mov rax, r8                    ; a = old b
-    mov r8, rdx                    ; b = remainder
-    jmp .gcd_loop                  ; Repeat the loop
+    mov rax, r8
+    mov r8, rdx
+    jmp .gcd_loop
     
 .gcd_done:
-    ; 3. Safety Check: If GCD is 0, skip reduction to avoid a crash
+    ; reduce if gcd != 0
     cmp rax, 0
-    je .reduction_done             ; Both inputs were 0 (e.g., 0/0 -> NaN)
+    je .reduction_done
 
-    mov r9, rax                    ; Save our found GCD into r9 safely
+    mov r9, rax
 
-    ; 4. Reduce the Denominator
-    ; (Since r13 is guaranteed positive, we can safely use unsigned div directly)
-    mov rax, r13                   ; Load the denominator into rax
-    xor rdx, rdx                   ; Clear rdx for unsigned division
-    div r9                         ; Unsigned divide: rax = denominator / GCD
-    mov r13, rax                   ; Store the reduced denominator back into r13
+    ; reduce denom
+    mov rax, r13
+    xor rdx, rdx
+    div r9
+    mov r13, rax
 
-    ; 5. Reduce the Numerator (Using idiv natively!)
-    mov rax, r12                   ; Load the original, signed numerator into rax
-    cqo                            ; Sign-extend rax into rdx:rax
-    idiv r9                        ; Signed divide: rax = numerator / GCD
-    mov r12, rax                   ; Store the reduced numerator back into r12
+    ; reduce num
+    mov rax, r12
+    cqo
+    idiv r9
+    mov r12, rax
 
 .reduction_done:
-; 1. Check for Zero Denominator edge cases (NaN, +∞, -∞)
+    ; check edge cases for printing
     cmp r13, 0
-    jne .check_zero_numerator      ; If denominator is not 0, move to standard checks
+    jne .check_zero_numerator
 
-    ; -- We have a zero denominator --
+    ; denom is 0
     cmp r12, 0
-    je .print_nan                  ; If numerator is also 0 -> NaN
-    jg .print_plus_inf             ; If numerator > 0 -> +∞
-    jl .print_minus_inf            ; If numerator < 0 -> -∞
+    je .print_nan
+    jg .print_plus_inf
+    jl .print_minus_inf
 
 .check_zero_numerator:
-    ; 2. Check if the numerator is 0 (and denominator is not 0)
     cmp r12, 0
-    je .print_zero                 ; If numerator is 0 -> print 0
+    je .print_zero
 
-    ; 3. Check if the denominator is 1
     cmp r13, 1
-    je .print_integer              ; If denominator is 1 -> print as an integer
+    je .print_integer
 
 .print_fraction:
-    ; 4. Standard fraction printing (e.g., "3/4")
-    lea rdi, [fmt_fraction]        ; Load "%ld/%ld\n" into first argument
-    mov rsi, r12                   ; Load numerator into second argument
-    mov rdx, r13                   ; Load denominator into third argument
-    xor rax, rax                   ; Clear rax for variadic function
+    lea rdi, [fmt_fraction]
+    mov rsi, r12
+    mov rdx, r13
+    xor rax, rax
     call printf
     jmp .end_program
 
 .print_nan:
-    lea rdi, [fmt_nan]             ; Load 'NaN ("not a number")\n'
+    lea rdi, [fmt_nan]
     xor rax, rax
     call printf
     jmp .end_program
 
 .print_plus_inf:
-    lea rdi, [fmt_plus_infinity]   ; Load "+∞"
+    lea rdi, [fmt_plus_infinity]
     xor rax, rax
     call printf
-    jmp .print_newline             ; Jump to print a newline
+    jmp .print_newline
 
 .print_minus_inf:
-    lea rdi, [fmt_minus_infinity]  ; Load "-∞"
+    lea rdi, [fmt_minus_infinity]
     xor rax, rax
     call printf
-    jmp .print_newline             ; Jump to print a newline
+    jmp .print_newline
 
 .print_zero:
-    lea rdi, [fmt_integer]         ; Load "%ld\n"
-    mov rsi, 0                     ; Set value to print as 0
+    lea rdi, [fmt_integer]
+    mov rsi, 0
     xor rax, rax
     call printf
     jmp .end_program
 
 .print_integer:
-    lea rdi, [fmt_integer]         ; Load "%ld\n"
-    mov rsi, r12                   ; Set value to print as the numerator
+    lea rdi, [fmt_integer]
+    mov rsi, r12
     xor rax, rax
     call printf
     jmp .end_program
 
 .print_newline:
-    ; 5. Print the missing newline using printf instead of putchar
-    lea rdi, [fmt_newline]         ; Load our dedicated newline string
-    xor rax, rax                   ; Clear rax for variadic function
-    call printf                    ; Call C library printf
-    ; Fall through to .end_program
+    lea rdi, [fmt_newline]
+    xor rax, rax
+    call printf
 
 .end_program:
-    mov rax, 0                     ; Set return code to 0 (success)
-    ret                            ; Exit program
+    mov rax, 0
+    ret
 
 parse_fraction:
-    call parse_int                 ; Parse the numerator
-    mov r8, rax                    ; Temporarily park the numerator in r8
+    call parse_int
+    mov r8, rax                    ; save num
     
-    mov rcx, 1                     ; Default the denominator to 1
-    cmp byte [rdi], 0              ; Check if we reached the null terminator
-    je .frac_done                  ; If yes, it's just an integer; we are done
+    mov rcx, 1                     ; default denom to 1
+    cmp byte [rdi], 0
+    je .frac_done
     
-    cmp byte [rdi], '/'            ; Check if the current character is a slash
-    jne usage_error                ; If it's not a null and not a '/', it's invalid
+    cmp byte [rdi], '/'
+    jne usage_error
     
-    inc rdi                        ; Advance pointer past the '/'
-    call parse_int                 ; Parse the denominator
-    mov rcx, rax                   ; Move the parsed denominator into rcx
+    inc rdi
+    call parse_int
+    mov rcx, rax
     
-    cmp byte [rdi], 0              ; Ensure no extra characters exist after the denominator
+    cmp byte [rdi], 0
     jne usage_error
 
 .frac_done:
-    mov rax, r8                    ; Restore the numerator back to rax for the return
+    mov rax, r8
     ret
 
 parse_int:
-    xor rax, rax                   ; Initialize accumulator to 0
-    mov r9, 1                      ; Initialize sign multiplier to positive 1
+    xor rax, rax
+    mov r9, 1
     
-    cmp byte [rdi], '-'            ; Check for negative sign
-    jne .parse_loop                ; If not negative, jump to parsing digits
-    mov r9, -1                     ; Set sign multiplier to -1
-    inc rdi                        ; Advance pointer past the '-'
+    cmp byte [rdi], '-'
+    jne .parse_loop
+    mov r9, -1                     ; negative sign
+    inc rdi
     
 .parse_loop:
-    ; 1. Direct memory comparisons (no need for 'b' registers)
-    cmp byte [rdi], '0'            ; Check if the byte in memory is less than ASCII '0'
-    jl .int_done                   ; If so, we've hit a non-digit (like '/' or null)
-    cmp byte [rdi], '9'            ; Check if the byte in memory is greater than ASCII '9'
-    jg .int_done                   ; If so, we've hit a non-digit
+    cmp byte [rdi], '0'
+    jl .int_done
+    cmp byte [rdi], '9'
+    jg .int_done
     
-    imul rax, 10                   ; Multiply our running total by 10
+    imul rax, 10
     
-    ; 2. Safely load the 8-bit character into a 64-bit register without movzx
-    xor rcx, rcx                   ; Clear the entire 64-bit rcx register to all zeros
-    mov cl, byte [rdi]             ; Move the 8-bit character into cl (the lowest byte of rcx)
-                                   ; rcx now safely holds the 64-bit equivalent of the character
-
-    sub rcx, '0'                   ; Convert ASCII character to literal integer (e.g., '5' -> 5)
-    add rax, rcx                   ; Add the new digit to our running total
+    xor rcx, rcx
+    mov cl, byte [rdi]
+    sub rcx, '0'
+    add rax, rcx
     
-    inc rdi                        ; Advance the pointer to the next character
-    jmp .parse_loop                ; Repeat the loop
+    inc rdi
+    jmp .parse_loop
     
 .int_done:
-    imul rax, r9                   ; Multiply the final number by our sign (1 or -1)
+    imul rax, r9                   ; apply sign
     ret
 
 section .note.GNU-stack noalloc noexec
